@@ -166,7 +166,7 @@ exiftool writes both IPTC IIM and XMP:
 - **Image size**: Claude's vision API accepts base64 images up to ~5 MB in the request body. For large TIFFs, resize or export a JPEG proxy before dropping into the watch folder.
 - **Timeout**: The watcher waits 120 seconds for n8n to respond. The Claude API call typically takes 15–40 seconds; Google Sheets append adds ~2 seconds. If you're hitting timeouts, check n8n execution logs first.
 - **Google Sheets schema check**: n8n's Sheets node v4.5 reads row 1 on every append to validate column names. If you rename headers in the sheet, update the `columns.schema` array in the workflow node parameters to match, or the workflow will error.
-- **SSL**: If n8n uses a self-signed cert (common on local/Tailscale setups), the watcher will retry with `verify=False` on SSL error. For production, use a proper cert.
+- **SSL**: If n8n installed a self-signed cert (common on local/Tailscale setups), the watcher will retry with `verify=False` on SSL error. For production, use a proper cert.
 
 ---
 
@@ -183,4 +183,4 @@ exiftool writes both IPTC IIM and XMP:
 
 Built by [Brooke Whatnall](https://brookewhatnall.com) — photographer and automation consultant based in Berlin.
 
-Available for n8n workflow builds, AI integration, and photography automation on [Upwork](https://www.upwork.com).
+Available for n8n workflow builds, AI integration, and photography automation on [Upwork](https://www.upwork.com/freelancers/~01ddd109079402da09?mp_source=share).
