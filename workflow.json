@@ -1,0 +1,147 @@
+{
+  "name": "Stock Photo Keyworder",
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "description": "imageBase64 flows directly from webhook to HTTP Request jsonBody expression — never through a Code node. Avoids task runner size limit.",
+  "meta": {
+    "aiBuilderAssisted": true,
+    "builderVariant": "mcp"
+  },
+  "nodes": [
+    {
+      "id": "ab3da6a4-c27b-4b5d-b663-4d830b440830",
+      "name": "Receive Image from Mac",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [0, 96],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "stock-keyworder",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "webhookId": "b242e9df-6b82-4c5e-8cf7-ff2cf431ea19"
+    },
+    {
+      "id": "a4936fd0-d5c2-4b78-bd6d-ddf0e2ac7fca",
+      "name": "Call Anthropic API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [224, 96],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "sendHeaders": true,
+        "specifyHeaders": "keypair",
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "YOUR_ANTHROPIC_API_KEY"
+            },
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ ({\n  model: \"claude-sonnet-4-6\",\n  max_tokens: 1200,\n  system: \"You are an expert stock photography metadata specialist. Analyze the provided photograph and return ONLY a valid JSON object — no markdown fences, no explanation, no preamble.\",\n  messages: [{\n    role: \"user\",\n    content: [\n      {\n        type: \"image\",\n        source: {\n          type: \"base64\",\n          media_type: $json.body.mimeType || \"image/jpeg\",\n          data: $json.body.imageBase64\n        }\n      },\n      {\n        type: \"text\",\n        text: \"Analyze this stock photograph. Filename hint: \\\"\" + ($json.body.filename || \"\").replace(/\\.[^.]+$/, \"\").replace(/[-_]/g, \" \") + \"\\\".\\n\\nReturn ONLY this JSON structure:\\n{\\n  \\\"title\\\": \\\"Descriptive title max 200 chars, factual, capitalise main words\\\",\\n  \\\"description\\\": \\\"2-3 sentences max 200 chars total\\\",\\n  \\\"keywords\\\": [\\\"array of 45-50 keywords-sorted most-specific to most-general\\\"],\\n  \\\"classification\\\": \\\"commercial or editorial\\\",\\n  \\\"agencies\\\": [\\\"subset of: Adobe Stock, Shutterstock, Alamy, Getty Images, Depositphotos, Dreamstime, 123RF\\\"],\\n  \\\"notes\\\": \\\"usage restrictions or empty string\\\"\\n}\\n\\nAgency rules: commercial (no recognisable people) gets Adobe Stock, Shutterstock, Depositphotos, Dreamstime, 123RF; fine art and landscapes add Getty Images; editorial gets Alamy and Getty Images only; high-quality B&W always include Alamy.\"\n      }\n    ]\n  }]\n}) }}"
+      }
+    },
+    {
+      "id": "9ff00b3a-4e0a-4589-8abe-3537bf58a60f",
+      "name": "Parse Metadata",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [448, 96],
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "\nconst responseText = $json.content?.[0]?.text || '';\nlet metadata = {};\ntry {\n  const jsonMatch = responseText.match(/{[\\s\\S]*}/);\n  metadata = JSON.parse(jsonMatch ? jsonMatch[0] : responseText);\n} catch (e) {\n  throw new Error('Failed to parse Claude response: ' + responseText.substring(0, 300));\n}\n\nconst filename = $(\"Receive Image from Mac\").item.json.body.filename || 'untitled.jpg';\nconst keywords = Array.isArray(metadata.keywords) ? metadata.keywords : [];\nconst agencies = Array.isArray(metadata.agencies) ? metadata.agencies : [];\nconst keywordsStr = keywords.join(', ');\nconst agenciesStr = agencies.join(', ');\nconst today = new Date().toISOString().split('T')[0];\n\nfunction escapeMd(str) {\n  return (str || '').replace(/[_*`\\[\\]()]/g, '\\\\$&');\n}\n\nconst reviewMsg =\n  'File: ' + escapeMd(filename) + '\\n\\n' +\n  'TITLE:\\n' + escapeMd(metadata.title || '') + '\\n\\n' +\n  'DESCRIPTION:\\n' + escapeMd(metadata.description || '') + '\\n\\n' +\n  'CLASSIFICATION: ' + escapeMd((metadata.classification || '').toUpperCase()) + '\\n' +\n  'AGENCIES: ' + escapeMd(agenciesStr) + '\\n\\n' +\n  'KEYWORDS (' + keywords.length + '):\\n' + escapeMd(keywordsStr) +\n  (metadata.notes ? '\\n\\nNOTES: ' + escapeMd(metadata.notes) : '');\n\nreturn {\n  json: {\n    filename,\n    escapedFilename: escapeMd(filename),\n    title: metadata.title || '',\n    description: metadata.description || '',\n    keywords: keywordsStr,\n    keywordsCount: keywords.length,\n    classification: (metadata.classification || 'commercial').toLowerCase(),\n    agencies: agenciesStr,\n    notes: metadata.notes || '',\n    reviewMsg,\n    approvedAt: today,\n  }\n};\n"
+      }
+    },
+    {
+      "id": "8b016736-90f3-43f9-a750-cc344f5ad8b7",
+      "name": "Write to Google Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1120, 0],
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEETS_DOCUMENT_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Sheet1",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Filename": "={{ $(\"Parse Metadata\").item.json.filename }}",
+            "Title": "={{ $(\"Parse Metadata\").item.json.title }}",
+            "Description": "={{ $(\"Parse Metadata\").item.json.description }}",
+            "Keywords": "={{ $(\"Parse Metadata\").item.json.keywords }}",
+            "Classification": "={{ $(\"Parse Metadata\").item.json.classification }}",
+            "Agencies": "={{ $(\"Parse Metadata\").item.json.agencies }}",
+            "Notes": "={{ $(\"Parse Metadata\").item.json.notes }}",
+            "Date Approved": "={{ $(\"Parse Metadata\").item.json.approvedAt }}"
+          },
+          "schema": [
+            {"id": "Filename", "displayName": "Filename", "required": false, "defaultMatch": false, "canBeUsedToMatch": true, "display": true, "type": "string", "readOnly": false, "removed": false},
+            {"id": "Title", "displayName": "Title", "required": false, "defaultMatch": false, "canBeUsedToMatch": true, "display": true, "type": "string", "readOnly": false, "removed": false},
+            {"id": "Description", "displayName": "Description", "required": false, "defaultMatch": false, "canBeUsedToMatch": true, "display": true, "type": "string", "readOnly": false, "removed": false},
+            {"id": "Keywords", "displayName": "Keywords", "required": false, "defaultMatch": false, "canBeUsedToMatch": true, "display": true, "type": "string", "readOnly": false, "removed": false},
+            {"id": "Classification", "displayName": "Classification", "required": false, "defaultMatch": false, "canBeUsedToMatch": true, "display": true, "type": "string", "readOnly": false, "removed": false},
+            {"id": "Agencies", "displayName": "Agencies", "required": false, "defaultMatch": false, "canBeUsedToMatch": true, "display": true, "type": "string", "readOnly": false, "removed": false},
+            {"id": "Notes", "displayName": "Notes", "required": false, "defaultMatch": false, "canBeUsedToMatch": true, "display": true, "type": "string", "readOnly": false, "removed": false},
+            {"id": "Date Approved", "displayName": "Date Approved", "required": false, "defaultMatch": false, "canBeUsedToMatch": true, "display": true, "type": "string", "readOnly": false, "removed": false}
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "ret-01",
+      "name": "Return Metadata",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.2,
+      "position": [1568, 0],
+      "parameters": {
+        "mode": "manual",
+        "includeOtherFields": false,
+        "fields": {
+          "values": [
+            {"name": "filename", "type": "stringValue", "stringValue": "={{ $json.Filename }}"},
+            {"name": "title", "type": "stringValue", "stringValue": "={{ $json.Title }}"},
+            {"name": "description", "type": "stringValue", "stringValue": "={{ $json.Description }}"},
+            {"name": "keywords", "type": "stringValue", "stringValue": "={{ $json.Keywords }}"},
+            {"name": "classification", "type": "stringValue", "stringValue": "={{ $json.Classification }}"},
+            {"name": "agencies", "type": "stringValue", "stringValue": "={{ $json.Agencies }}"}
+          ]
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Receive Image from Mac": {
+      "main": [[{"node": "Call Anthropic API", "type": "main", "index": 0}]]
+    },
+    "Call Anthropic API": {
+      "main": [[{"node": "Parse Metadata", "type": "main", "index": 0}]]
+    },
+    "Parse Metadata": {
+      "main": [[{"node": "Write to Google Sheets", "type": "main", "index": 0}]]
+    },
+    "Write to Google Sheets": {
+      "main": [[{"node": "Return Metadata", "type": "main", "index": 0}]]
+    }
+  }
+}
